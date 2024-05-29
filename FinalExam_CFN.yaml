@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create the specified AWS resources
+
+Parameters:
+  DynamoDBTableName:
+    Type: String
+    Default: metroddb
+    Description: The name of the DynamoDB table
+  VpcCidr:
+    Type: String
+    Default: 10.50.0.0/16
+    Description: The CIDR block for the VPC
+  Subnet1Cidr:
+    Type: String
+    Default: 10.50.1.0/24
+    Description: The CIDR block for Subnet-1 in ca-central-1a
+  Subnet2Cidr:
+    Type: String
+    Default: 10.50.2.0/24
+    Description: The CIDR block for Subnet-2 in ca-central-1a
+  Subnet3Cidr:
+    Type: String
+    Default: 10.50.3.0/24
+    Description: The CIDR block for Subnet-3 in ca-central-1b
+  Subnet4Cidr:
+    Type: String
+    Default: 10.50.4.0/24
+    Description: The CIDR block for Subnet-4 in ca-central-1b
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: The EC2 instance type
+  AmiId:
+    Type: String
+    Default: ami-0c55b159cbfafe1f0
+    Description: The AMI ID for the EC2 instances
+
+Resources:
+  # DynamoDB Table
+  MetroDDB:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      TableName: !Ref DynamoDBTableName
+      AttributeDefinitions: 
+        - AttributeName: id
+          AttributeType: S
+      KeySchema: 
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput: 
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MetroVPC
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  # Route for Public Route Table
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Subnets
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref Subnet1Cidr
+      AvailabilityZone: ca-central-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Subnet-1
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref Subnet2Cidr
+      AvailabilityZone: ca-central-1a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Subnet-2
+
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref Subnet3Cidr
+      AvailabilityZone: ca-central-1b
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Subnet-3
+
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref Subnet4Cidr
+      AvailabilityZone: ca-central-1b
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Subnet-4
+
+  # Associate Subnets with Public Route Table
+  Subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  # Elastic IP for NAT Gateway
+  EIP:
+    Type: AWS::EC2::EIP
+
+  # NAT Gateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref Subnet1
+      AllocationId: !GetAtt EIP.AllocationId
+
+  # Private Route Table
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  # Route for Private Route Table
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # Associate Subnets with Private Route Table
+  Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  Subnet4RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet4
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security Group
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and HTTP access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: MetroSecurityGroup
+
+  # EC2 Instance in Public Subnet
+  PublicEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetId: !Ref Subnet1
+      ImageId: !Ref AmiId
+
+  # EC2 Instance in Private Subnet
+  PrivateEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetId: !Ref Subnet2
+      ImageId: !Ref AmiId
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+  PublicSubnet1Id:
+    Description: Subnet-1 ID
+    Value: !Ref Subnet1
+  PublicSubnet3Id:
+    Description: Subnet-3 ID
+    Value: !Ref Subnet3
+  PrivateSubnet2Id:
+    Description: Subnet-2 ID
+    Value: !Ref Subnet2
+  PrivateSubnet4Id:
+    Description: Subnet-4 ID
+    Value: !Ref Subnet4
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref SecurityGroup
+  PublicEC2InstanceId:
+    Description: Public EC2 Instance ID
+    Value: !Ref PublicEC2Instance
+  PrivateEC2InstanceId:
+    Description: Private EC2 Instance ID
+    Value: !Ref PrivateEC2Instance
